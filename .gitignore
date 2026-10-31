@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+AlphaStocks.app/
+.build/
+.swiftpm/
+xcuserdata/
+DerivedData/
+launchd_stdout.log
+launchd_stderr.log

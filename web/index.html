@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AlphaStocks Widget</title>
+  <style>
+    :root {
+      --bg-glass: rgba(18, 22, 30, 0.78);
+      --border-glass: rgba(255, 255, 255, 0.12);
+      --highlight-glass: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+      --card-bg: rgba(255, 255, 255, 0.05);
+      --card-hover: rgba(255, 255, 255, 0.09);
+      --card-border: rgba(255, 255, 255, 0.07);
+      
+      /* 经典国内买方配色: 红涨绿跌 */
+      --color-up: #EF4444;
+      --color-up-bg: rgba(239, 68, 68, 0.16);
+      --color-down: #10B981;
+      --color-down-bg: rgba(16, 185, 129, 0.16);
+      --color-flat: #94A3B8;
+      
+      --text-primary: #F8FAFC;
+      --text-secondary: #94A3B8;
+      --text-muted: #64748B;
+      --font-mono: -apple-system-subheadline, "SF Pro Text", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body {
+      background: transparent;
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    /* 主小组件容器 - 苹果官方小组件同款圆角与质感 */
+    .widget-container {
+      width: 100%;
+      height: 100%;
+      background: var(--bg-glass);
+      backdrop-filter: blur(40px) saturate(200%);
+      -webkit-backdrop-filter: blur(40px) saturate(200%);
+      border: 1px solid var(--border-glass);
+      box-shadow: var(--highlight-glass), 0 20px 48px rgba(0, 0, 0, 0.45);
+      border-radius: 24px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+      padding: 14px 16px;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    /* 顶部拖拽标题栏 */
+    .widget-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      -webkit-app-region: drag;
+      cursor: grab;
+    }
+
+    .widget-header:active {
+      cursor: grabbing;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--color-down);
+      box-shadow: 0 0 8px var(--color-down);
+      transition: background 0.3s;
+    }
+
+    .status-dot.pulse {
+      animation: pulse-glow 2s infinite;
+    }
+
+    @keyframes pulse-glow {
+      0% { opacity: 0.6; transform: scale(0.95); }
+      50% { opacity: 1; transform: scale(1.15); }
+      100% { opacity: 0.6; transform: scale(0.95); }
+    }
+
+    .widget-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .status-tag {
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+
+    .icon-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text-secondary);
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 11px;
+      transition: all 0.15s;
+    }
+
+    .icon-btn:hover {
+      background: rgba(255, 255, 255, 0.14);
+      color: var(--text-primary);
+    }
+
+    .icon-btn.active {
+      background: rgba(255, 255, 255, 0.2);
+      color: #FFF;
+    }
+
+    /* 宏观大类资产横向滚动带 (Medium & Large) */
+    .macro-bar {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      margin-bottom: 10px;
+      padding-bottom: 2px;
+      -webkit-app-region: no-drag;
+    }
+
+    .macro-bar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .macro-pill {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 6px 10px;
+      min-width: 95px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      transition: background 0.15s;
+    }
+
+    .macro-pill:hover {
+      background: var(--card-hover);
+    }
+
+    .macro-pill .name {
+      font-size: 10px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .macro-pill .price-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 4px;
+    }
+
+    .macro-pill .price {
+      font-size: 12px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-primary);
+    }
+
+    .macro-pill .pct {
+      font-size: 10px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* 市场微观情绪温度计 (Large & Extra Large) */
+    .breadth-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 8px 12px;
+      margin-bottom: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+
+    .breadth-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+    }
+
+    .breadth-title {
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .breadth-stat {
+      color: var(--text-primary);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .breadth-bar {
+      height: 6px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.1);
+      display: flex;
+      overflow: hidden;
+    }
+
+    .bar-up {
+      background: var(--color-up);
+      height: 100%;
+      transition: width 0.4s ease;
+    }
+
+    .bar-down {
+      background: var(--color-down);
+      height: 100%;
+      transition: width 0.4s ease;
+    }
+
+    .bar-flat {
+      background: var(--color-flat);
+      height: 100%;
+      transition: width 0.4s ease;
+    }
+
+    /* 股票列表容器 */
+    .stocks-container {
+      flex: 1;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.1) transparent;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+
+    .stock-item {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 6px 10px;
+      display: grid;
+      grid-template-columns: 82px 58px 1fr 68px;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.15s;
+    }
+
+    .stock-item:hover {
+      background: var(--card-hover);
+    }
+
+    .stock-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      overflow: hidden;
+    }
+
+    .stock-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+
+    .stock-code {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    /* 迷你分时 Sparkline */
+    .sparkline-svg {
+      width: 58px;
+      height: 24px;
+      overflow: visible;
+    }
+
+    /* 日内价格位置进度条 Range Slider */
+    .range-box {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding: 0 4px;
+    }
+
+    .range-track {
+      height: 3px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      position: relative;
+    }
+
+    .range-thumb {
+      position: absolute;
+      top: -2.5px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #FFF;
+      box-shadow: 0 0 4px rgba(0,0,0,0.5);
+      transform: translateX(-50%);
+      transition: left 0.3s;
+    }
+
+    .range-labels {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+      font-size: 8.5px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    /* 价格与涨跌药丸 */
+    .stock-price-col {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+    }
+
+    .stock-price {
+      font-size: 13px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-primary);
+    }
+
+    .pct-pill {
+      font-size: 10px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      padding: 2px 6px;
+      border-radius: 6px;
+      min-width: 52px;
+      text-align: center;
+    }
+
+    /* 买方高阶指标 (换手率/成交额/PE - Extra Large模式显示) */
+    .metrics-col {
+      display: none;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+      font-size: 10px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* 布局适配模式 */
+    /* 1. Medium 模式 (紧凑) */
+    .mode-medium .breadth-card { display: none; }
+    .mode-medium .range-box { display: none; }
+    .mode-medium .stock-item {
+      grid-template-columns: 100px 70px 1fr;
+    }
+
+    /* 2. Extra Large 模式 (双栏双倍信息密度) */
+    .mode-extra_large {
+      padding: 16px 20px;
+    }
+
+    .mode-extra_large .layout-split {
+      display: grid;
+      grid-template-columns: 290px 1fr;
+      gap: 16px;
+      height: calc(100% - 36px);
+    }
+
+    .mode-extra_large .left-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow-y: auto;
+    }
+
+    .mode-extra_large .right-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      height: 100%;
+    }
+
+    .mode-extra_large .metrics-col {
+      display: flex;
+    }
+
+    .mode-extra_large .stock-item {
+      grid-template-columns: 90px 60px 1fr 75px 65px;
+    }
+
+    /* 宏观大网格 (Extra Large) */
+    .macro-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    /* 浮动操作条与输入框 */
+    .input-bar {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 6px;
+      -webkit-app-region: no-drag;
+    }
+
+    .stock-input {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      color: #FFF;
+      padding: 5px 10px;
+      font-size: 11px;
+      outline: none;
+    }
+
+    .stock-input:focus {
+      border-color: rgba(255, 255, 255, 0.3);
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .add-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      color: #FFF;
+      padding: 0 10px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .add-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* 设置面板弹窗 */
+    .settings-modal {
+      position: absolute;
+      top: 45px;
+      right: 16px;
+      width: 220px;
+      background: rgba(25, 30, 42, 0.94);
+      backdrop-filter: blur(30px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 100;
+      -webkit-app-region: no-drag;
+    }
+
+    .settings-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .segmented-control {
+      display: flex;
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 6px;
+      padding: 2px;
+      gap: 2px;
+    }
+
+    .segmented-btn {
+      padding: 2px 7px;
+      font-size: 10px;
+      color: var(--text-secondary);
+      background: transparent;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .segmented-btn.active {
+      background: rgba(255, 255, 255, 0.2);
+      color: #FFF;
+    }
+
+    .delete-btn {
+      opacity: 0;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 11px;
+      transition: opacity 0.15s;
+    }
+
+    .stock-item:hover .delete-btn {
+      opacity: 1;
+    }
+
+    .delete-btn:hover {
+      color: var(--color-up);
+    }
+  </style>
+</head>
+<body class="mode-large">
+  <div class="widget-container" id="widgetRoot">
+    <!-- 顶部标题与状态栏 -->
+    <div class="widget-header">
+      <div class="header-left">
+        <div class="status-dot pulse" id="statusDot"></div>
+        <div class="widget-title">
+          AlphaDesk
+          <span class="status-tag" id="statusText">正在同步...</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="icon-btn" id="btnToggleSize" title="切换组件尺寸 (M/L/XL)">⊞</button>
+        <button class="icon-btn" id="btnPinDesktop" title="桌面小组件/置顶浮窗切换">📌</button>
+        <button class="icon-btn" id="btnSettings" title="设置">⚙</button>
+      </div>
+    </div>
+
+    <!-- 弹窗设置面板 -->
+    <div class="settings-modal" id="settingsModal">
+      <div class="settings-row">
+        <span>组件尺寸</span>
+        <div class="segmented-control">
+          <button class="segmented-btn" onclick="setSize('medium')">M</button>
+          <button class="segmented-btn" onclick="setSize('large')">L</button>
+          <button class="segmented-btn" onclick="setSize('extra_large')">XL</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <span>红绿习惯</span>
+        <div class="segmented-control">
+          <button class="segmented-btn active" id="btnColorCn" onclick="setColorScheme('china')">红涨绿跌</button>
+          <button class="segmented-btn" id="btnColorUs" onclick="setColorScheme('us')">绿涨红跌</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <span>刷新频率</span>
+        <div class="segmented-control">
+          <button class="segmented-btn" onclick="setRefreshInterval(3)">3s</button>
+          <button class="segmented-btn" onclick="setRefreshInterval(5)">5s</button>
+          <button class="segmented-btn" onclick="setRefreshInterval(15)">15s</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <span>窗口层级</span>
+        <div class="segmented-control">
+          <button class="segmented-btn" id="btnLevelDesktop" onclick="setWindowLevel('desktop')">贴在桌面</button>
+          <button class="segmented-btn" id="btnLevelFloating" onclick="setWindowLevel('floating')">常驻置顶</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 动态内容区 (非 XL 模式显示此单列) -->
+    <div id="singleLayout">
+      <!-- 宏观资产滑动带 -->
+      <div class="macro-bar" id="macroBar"></div>
+
+      <!-- 市场情绪温度计卡片 -->
+      <div class="breadth-card" id="breadthCard">
+        <div class="breadth-header">
+          <div class="breadth-title">
+            <span>市场情绪与成交</span>
+            <span style="font-size: 9px; color: var(--text-muted);" id="breadthUpdate">--</span>
+          </div>
+          <div class="breadth-stat" id="breadthAmount">两市成交: -- 亿元</div>
+        </div>
+        <div class="breadth-bar">
+          <div class="bar-up" id="barUp" style="width: 50%;"></div>
+          <div class="bar-flat" id="barFlat" style="width: 5%;"></div>
+          <div class="bar-down" id="barDown" style="width: 45%;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted);">
+          <span style="color: var(--color-up);" id="textUp">涨 --</span>
+          <span style="color: var(--color-flat);" id="textFlat">平 --</span>
+          <span style="color: var(--color-down);" id="textDown">跌 --</span>
+        </div>
+      </div>
+
+      <!-- 自选股列表 -->
+      <div class="stocks-container" id="stocksList"></div>
+    </div>
+
+    <!-- XL 模式双栏布局 (仅在 XL 模式激活) -->
+    <div class="layout-split" id="splitLayout" style="display: none;">
+      <!-- 左栏: 宏观资产与市场情绪 -->
+      <div class="left-panel">
+        <div class="breadth-card" style="margin-bottom: 0;">
+          <div class="breadth-header">
+            <div class="breadth-title">市场情绪盘口</div>
+            <div class="breadth-stat" id="xlBreadthAmount">成交: -- 亿</div>
+          </div>
+          <div class="breadth-bar" style="margin: 4px 0;">
+            <div class="bar-up" id="xlBarUp" style="width: 50%;"></div>
+            <div class="bar-flat" id="xlBarFlat" style="width: 5%;"></div>
+            <div class="bar-down" id="xlBarDown" style="width: 45%;"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 10px;">
+            <span style="color: var(--color-up);" id="xlTextUp">涨 --</span>
+            <span style="color: var(--color-flat);" id="xlTextFlat">平 --</span>
+            <span style="color: var(--color-down);" id="xlTextDown">跌 --</span>
+          </div>
+        </div>
+        <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-top: 4px;">全球大类资产天眼</div>
+        <div class="macro-grid" id="xlMacroGrid"></div>
+      </div>
+
+      <!-- 右栏: 深度自选池 -->
+      <div class="right-panel">
+        <div class="input-bar">
+          <input type="text" class="stock-input" id="stockInput" placeholder="输入代码(如 601899, 00700, NVDA) 回车添加...">
+          <button class="add-btn" onclick="handleAddStock()">添加</button>
+        </div>
+        <div class="stocks-container" id="xlStocksList"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentConfig = {
+      size: "large",
+      color_scheme: "china",
+      refresh_interval: 5,
+      window_level: "desktop"
+    };
+
+    let timer = null;
+
+    // 通信接口: 发送给 Python Cocoa 宿主
+    function callNative(action, payload) {
+      if (window.pywebview && window.pywebview.api) {
+        return window.pywebview.api.handle_action(action, payload);
+      } else {
+        // Fallback REST / fetch
+        return fetch(`/api/${action}`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload || {})
+        }).then(r => r.json()).catch(() => null);
+      }
+    }
+
+    // 格式化涨跌色
+    function getColor(pct) {
+      if (pct > 0) {
+        return currentConfig.color_scheme === 'china' ? 'var(--color-up)' : 'var(--color-down)';
+      } else if (pct < 0) {
+        return currentConfig.color_scheme === 'china' ? 'var(--color-down)' : 'var(--color-up)';
+      }
+      return 'var(--color-flat)';
+    }
+
+    function getBgColor(pct) {
+      if (pct > 0) {
+        return currentConfig.color_scheme === 'china' ? 'var(--color-up-bg)' : 'var(--color-down-bg)';
+      } else if (pct < 0) {
+        return currentConfig.color_scheme === 'china' ? 'var(--color-down-bg)' : 'var(--color-up-bg)';
+      }
+      return 'rgba(255, 255, 255, 0.08)';
+    }
+
+    // 绘制平滑 SVG Sparkline
+    function renderSparklineSvg(points, pct) {
+      if (!points || points.length < 2) return '';
+      const stroke = getColor(pct);
+      const w = 58;
+      const h = 24;
+      const step = w / (points.length - 1);
+      
+      let d = `M 0 ${points[0] * h / 100}`;
+      for (let i = 1; i < points.length; i++) {
+        const x = i * step;
+        const y = points[i] * h / 100;
+        d += ` L ${x.toFixed(1)} ${y.toFixed(1)}`;
+      }
+
+      return `
+        <svg class="sparkline-svg" viewBox="0 0 ${w} ${h}">
+          <path d="${d}" fill="none" stroke="${stroke}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      `;
+    }
+
+    // 渲染整体界面
+    function renderData(data) {
+      if (!data) return;
+      if (data.config) {
+        currentConfig = data.config;
+        applyConfigUI();
+      }
+
+      // 1. 状态栏
+      const statusText = document.getElementById('statusText');
+      statusText.innerText = `${data.status.text} · ${data.status.update_time}`;
+      
+      const dot = document.getElementById('statusDot');
+      if (data.status.state === 'open') {
+        dot.style.background = 'var(--color-down)';
+        dot.style.boxShadow = '0 0 8px var(--color-down)';
+      } else if (data.status.state === 'call_auction') {
+        dot.style.background = '#F59E0B';
+        dot.style.boxShadow = '0 0 8px #F59E0B';
+      } else {
+        dot.style.background = '#64748B';
+        dot.style.boxShadow = 'none';
+      }
+
+      // 2. 宏观走势带 (单列模式)
+      const macroBar = document.getElementById('macroBar');
+      macroBar.innerHTML = data.macro.map(m => `
+        <div class="macro-pill">
+          <span class="name">${m.name}</span>
+          <div class="price-row">
+            <span class="price">${m.price}</span>
+            <span class="pct" style="color: ${getColor(m.raw_pct)};">${m.pct}</span>
+          </div>
+        </div>
+      `).join('');
+
+      // 3. 市场温度计 (单列)
+      const b = data.breadth;
+      if (b) {
+        document.getElementById('breadthAmount').innerText = `两市成交: ${b.total_amount} 亿元`;
+        document.getElementById('textUp').innerText = `涨 ${b.up_count}`;
+        document.getElementById('textFlat').innerText = `平 ${b.flat_count}`;
+        document.getElementById('textDown').innerText = `跌 ${b.down_count}`;
+        
+        const total = b.total_count || 1;
+        document.getElementById('barUp').style.width = `${(b.up_count / total * 100).toFixed(1)}%`;
+        document.getElementById('barFlat').style.width = `${(b.flat_count / total * 100).toFixed(1)}%`;
+        document.getElementById('barDown').style.width = `${(b.down_count / total * 100).toFixed(1)}%`;
+
+        // XL 对应的温度计
+        const xlAmt = document.getElementById('xlBreadthAmount');
+        if (xlAmt) xlAmt.innerText = `两市成交: ${b.total_amount} 亿`;
+        const xlUp = document.getElementById('xlTextUp');
+        if (xlUp) xlUp.innerText = `涨 ${b.up_count}`;
+        const xlFlat = document.getElementById('xlTextFlat');
+        if (xlFlat) xlFlat.innerText = `平 ${b.flat_count}`;
+        const xlDown = document.getElementById('xlTextDown');
+        if (xlDown) xlDown.innerText = `跌 ${b.down_count}`;
+        const xlBarUp = document.getElementById('xlBarUp');
+        if (xlBarUp) xlBarUp.style.width = `${(b.up_count / total * 100).toFixed(1)}%`;
+        const xlBarFlat = document.getElementById('xlBarFlat');
+        if (xlBarFlat) xlBarFlat.style.width = `${(b.flat_count / total * 100).toFixed(1)}%`;
+        const xlBarDown = document.getElementById('xlBarDown');
+        if (xlBarDown) xlBarDown.style.width = `${(b.down_count / total * 100).toFixed(1)}%`;
+      }
+
+      // 4. XL 宏观网格
+      const xlMacroGrid = document.getElementById('xlMacroGrid');
+      if (xlMacroGrid) {
+        xlMacroGrid.innerHTML = data.macro.map(m => `
+          <div class="macro-pill" style="min-width: unset;">
+            <span class="name">${m.name}</span>
+            <div class="price-row">
+              <span class="price">${m.price}</span>
+              <span class="pct" style="color: ${getColor(m.raw_pct)};">${m.pct}</span>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      // 5. 渲染自选列表
+      renderStocksList(data.stocks, document.getElementById('stocksList'));
+      renderStocksList(data.stocks, document.getElementById('xlStocksList'), true);
+    }
+
+    function renderStocksList(stocks, container, isXL = false) {
+      if (!container) return;
+      container.innerHTML = stocks.map((s, idx) => `
+        <div class="stock-item">
+          <div class="stock-meta">
+            <span class="stock-name" title="${s.name}">${s.name}</span>
+            <span class="stock-code">${s.code}</span>
+          </div>
+
+          <div>
+            ${renderSparklineSvg(s.sparkline, s.raw_pct)}
+          </div>
+
+          <div class="range-box">
+            <div class="range-track">
+              <div class="range-thumb" style="left: ${s.pos_pct}%;"></div>
+            </div>
+            <div class="range-labels">
+              <span>${s.low}</span>
+              <span>${s.high}</span>
+            </div>
+          </div>
+
+          <div class="stock-price-col">
+            <span class="stock-price">${s.price}</span>
+            <span class="pct-pill" style="color: ${getColor(s.raw_pct)}; background: ${getBgColor(s.raw_pct)};">
+              ${s.pct}
+            </span>
+          </div>
+
+          ${isXL ? `
+            <div class="metrics-col">
+              <span>额: ${s.turnover}</span>
+              <span>PE: ${s.pe}</span>
+              <span class="delete-btn" onclick="handleRemoveStock('${s.code}')" title="删除自选">✕</span>
+            </div>
+          ` : ''}
+        </div>
+      `).join('');
+    }
+
+    function applyConfigUI() {
+      document.body.className = `mode-${currentConfig.size}`;
+      const single = document.getElementById('singleLayout');
+      const split = document.getElementById('splitLayout');
+
+      if (currentConfig.size === 'extra_large') {
+        single.style.display = 'none';
+        split.style.display = 'grid';
+      } else {
+        single.style.display = 'block';
+        split.style.display = 'none';
+      }
+
+      // 切换红绿按钮状态
+      document.getElementById('btnColorCn').classList.toggle('active', currentConfig.color_scheme === 'china');
+      document.getElementById('btnColorUs').classList.toggle('active', currentConfig.color_scheme === 'us');
+
+      // 窗口层级按钮
+      document.getElementById('btnLevelDesktop').classList.toggle('active', currentConfig.window_level === 'desktop');
+      document.getElementById('btnLevelFloating').classList.toggle('active', currentConfig.window_level === 'floating');
+      document.getElementById('btnPinDesktop').innerText = currentConfig.window_level === 'desktop' ? '🖥' : '📌';
+    }
+
+    // 设置项操作
+    function setSize(sz) {
+      currentConfig.size = sz;
+      applyConfigUI();
+      callNative('set_size', { size: sz });
+      document.getElementById('settingsModal').style.display = 'none';
+    }
+
+    function setColorScheme(scheme) {
+      currentConfig.color_scheme = scheme;
+      applyConfigUI();
+      callNative('set_color', { color_scheme: scheme });
+      fetchData();
+    }
+
+    function setRefreshInterval(sec) {
+      currentConfig.refresh_interval = sec;
+      callNative('set_interval', { refresh_interval: sec });
+      startPolling();
+      document.getElementById('settingsModal').style.display = 'none';
+    }
+
+    function setWindowLevel(lvl) {
+      currentConfig.window_level = lvl;
+      applyConfigUI();
+      callNative('set_window_level', { window_level: lvl });
+      document.getElementById('settingsModal').style.display = 'none';
+    }
+
+    function handleAddStock() {
+      const input = document.getElementById('stockInput');
+      const val = input.value.trim();
+      if (!val) return;
+      callNative('add_stock', { code: val }).then(res => {
+        input.value = '';
+        fetchData();
+      });
+    }
+
+    function handleRemoveStock(code) {
+      callNative('remove_stock', { code: code }).then(res => {
+        fetchData();
+      });
+    }
+
+    // 交互事件绑定
+    document.getElementById('btnToggleSize').addEventListener('click', () => {
+      const order = ['medium', 'large', 'extra_large'];
+      const next = order[(order.indexOf(currentConfig.size) + 1) % order.length];
+      setSize(next);
+    });
+
+    document.getElementById('btnPinDesktop').addEventListener('click', () => {
+      const next = currentConfig.window_level === 'desktop' ? 'floating' : 'desktop';
+      setWindowLevel(next);
+    });
+
+    document.getElementById('btnSettings').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const modal = document.getElementById('settingsModal');
+      modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#settingsModal') && !e.target.closest('#btnSettings')) {
+        document.getElementById('settingsModal').style.display = 'none';
+      }
+    });
+
+    document.getElementById('stockInput')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleAddStock();
+    });
+
+    // 周期数据拉取
+    function fetchData() {
+      callNative('get_data').then(data => {
+        if (data) renderData(data);
+      });
+    }
+
+    function startPolling() {
+      if (timer) clearInterval(timer);
+      const interval = (currentConfig.refresh_interval || 5) * 1000;
+      timer = setInterval(fetchData, interval);
+    }
+
+    // 启动
+    window.addEventListener('DOMContentLoaded', () => {
+      fetchData();
+      startPolling();
+    });
+  </script>
+</body>
+</html>
